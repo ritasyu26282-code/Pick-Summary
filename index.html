@@ -1,50 +1,855 @@
 <!DOCTYPE html>
-<html lang="zh-Hant">
+<html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>檔案上傳元件預覽</title>
+    <title>CSV 資料自動切分與預覽工具</title>
+    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
-</head>
-<body class="bg-slate-50 p-10 flex items-center justify-center min-h-screen">
+    <style>
+        /* 隱藏滾動條但保持滾動 */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
 
-    <!-- 雙欄佈局容器 -->
-    <div class="w-full max-w-3xl grid grid-cols-1 md:grid-cols-3 gap-6">
-        
-        <!-- 左側：檔案上傳區域 (佔 2 欄) -->
-        <section id="upload-section" class="md:col-span-2 bg-white rounded-lg border-2 border-dashed border-slate-300 p-6 text-center hover:border-indigo-500 transition-colors duration-200 cursor-pointer relative shadow-sm group">
-            <input type="file" id="csv-file-input" accept=".csv, .txt" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10">
-            
-            <div class="flex flex-col items-center justify-center space-y-3 pointer-events-none">
-                <div class="p-3 bg-indigo-50 text-indigo-600 rounded-full group-hover:scale-105 transition-transform duration-200">
-                    <i data-lucide="upload-cloud" class="w-6 h-6"></i>
+        /* 列印專用樣式：橫向 A4 格式、移除捲動條並列印全部資料 */
+        @media print {
+            @page {
+                size: A4 landscape;
+                margin: 8mm;
+            }
+
+            header, 
+            #upload-section, 
+            #data-controls, 
+            button, 
+            input, 
+            select,
+            .no-print {
+                display: none !important;
+            }
+
+            body, main, div, #table-container, table, thead, tbody, tr, th, td {
+                overflow: visible !important;
+                max-height: none !important;
+                height: auto !important;
+            }
+
+            body, main {
+                background-color: #ffffff !important;
+                padding: 0 !important;
+                margin: 0 !important;
+                max-width: 100% !important;
+                width: 100% !important;
+            }
+
+            #table-container {
+                display: block !important;
+                border: none !important;
+                box-shadow: none !important;
+            }
+
+            table {
+                width: 100% !important;
+                border-collapse: collapse !important;
+                page-break-inside: auto;
+            }
+
+            tr {
+                page-break-inside: avoid;
+                page-break-after: auto;
+            }
+
+            th, td {
+                border: 1px solid #000000 !important;
+                color: #000000 !important;
+                padding: 4px 6px !important;
+                font-size: 8.5pt !important;
+                line-height: 1.2 !important;
+            }
+
+            /* 列印時移除圖標 */
+            svg, i {
+                display: none !important;
+            }
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col font-sans">
+
+    <!-- 頂部導覽列 -->
+    <header class="bg-white border-b border-slate-200 sticky top-0 z-10 shadow-sm">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+                <div class="p-2 bg-indigo-600 text-white rounded-lg shadow-sm">
+                    <i data-lucide="file-spreadsheet" class="w-6 h-6"></i>
                 </div>
                 <div>
-                    <p class="text-sm font-semibold text-slate-700">拖曳檔案至此，或點擊上傳</p>
-                    <p class="text-[10px] text-slate-400 mt-1">支援 .csv, .txt (UTF-8)</p>
+                    <h1 class="font-bold text-lg text-slate-900 leading-tight">CSV 資料自動剖析與檢視器</h1>
+                    <p class="text-xs text-slate-500">快速上傳、自動切分、過濾與瀏覽 CSV 數據</p>
+                </div>
+            </div>
+            <div id="file-status" class="hidden text-xs px-3 py-1 bg-emerald-100 text-emerald-800 rounded-full font-medium flex items-center gap-1.5">
+                <i data-lucide="check-circle-2" class="w-3.5 h-3.5"></i>
+                <span id="file-name-display">已成功讀取檔案</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- 主要內容區塊 -->
+    <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 flex flex-col gap-6">
+
+        <!-- 上傳與統計區塊 (左右排版：左大框、右上下小框) -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <!-- 檔案上傳區域 (佔 2 欄) -->
+            <section id="upload-section" class="lg:col-span-2 bg-white rounded-xl border-2 border-dashed border-slate-300 p-8 text-center hover:border-indigo-500 transition-colors duration-200 cursor-pointer relative shadow-sm group flex flex-col items-center justify-center">
+                <input type="file" id="csv-file-input" accept=".csv, .txt" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10">
+                <div class="flex flex-col items-center justify-center space-y-3 pointer-events-none">
+                    <div class="p-4 bg-indigo-50 text-indigo-600 rounded-full group-hover:scale-110 transition-transform duration-200">
+                        <i data-lucide="upload-cloud" class="w-10 h-10"></i>
+                    </div>
+                    <div>
+                        <p class="text-base font-semibold text-slate-700">拖曳 CSV 檔案至此，或 <span class="text-indigo-600 underline">點擊選擇檔案</span></p>
+                        <p class="text-xs text-slate-400 mt-1">支援 .csv 及以逗點、分號或 Tab 分隔的 .txt 檔案 (UTF-8 編碼)</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 右側上下兩個統計卡片框 (佔 1 欄) -->
+            <div class="flex flex-col gap-4 justify-between">
+                <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4 flex-1">
+                    <div class="p-3 bg-blue-50 text-blue-600 rounded-lg">
+                        <i data-lucide="rows" class="w-6 h-6"></i>
+                    </div>
+                    <div>
+                        <p class="text-xs font-medium text-slate-500">總資料筆數 (列)</p>
+                        <p id="stat-rows" class="text-2xl font-bold text-slate-800">0</p>
+                    </div>
+                </div>
+                <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4 flex-1">
+                    <div class="p-3 bg-emerald-50 text-emerald-600 rounded-lg">
+                        <i data-lucide="package" class="w-6 h-6"></i>
+                    </div>
+                    <div>
+                        <p class="text-xs font-medium text-slate-500">材料項數</p>
+                        <p id="stat-items" class="text-2xl font-bold text-slate-800">0</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 資料控制與分頁呈現區 (預設隱藏) -->
+        <section id="data-controls" class="hidden flex-col gap-4">
+            
+            <!-- 頁籤切換 Bar (Tabs) -->
+            <div class="bg-white rounded-xl border border-slate-200 p-2 flex space-x-2 shadow-sm">
+                <button id="tab1-btn" onclick="switchTab('tab1')" class="flex-1 py-2.5 px-4 rounded-lg font-semibold text-sm transition flex items-center justify-center gap-2 bg-indigo-600 text-white shadow-sm">
+                    <i data-lucide="list-checks" class="w-4 h-4"></i>
+                    領料單清單
+                </button>
+                <button id="tab2-btn" onclick="switchTab('tab2')" class="flex-1 py-2.5 px-4 rounded-lg font-semibold text-sm transition flex items-center justify-center gap-2 bg-slate-100 text-slate-600 hover:bg-slate-200">
+                    <i data-lucide="boxes" class="w-4 h-4"></i>
+                    材料備總數
+                </button>
+            </div>
+
+            <!-- 工具列 (搜尋/篩選/匯出/列印) -->
+            <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row items-center justify-between gap-4">
+                <!-- 搜尋框 -->
+                <div class="relative w-full md:w-80">
+                    <i data-lucide="search" class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"></i>
+                    <input type="text" id="search-input" placeholder="搜尋全表關鍵字..." class="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition">
+                </div>
+
+                <!-- 右側操作按鈕群 -->
+                <div class="flex items-center space-x-3 w-full md:w-auto justify-end flex-wrap sm:flex-nowrap gap-y-2">
+                    <!-- 匯出按鈕 -->
+                    <button id="export-btn" class="px-3.5 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-sm font-medium transition flex items-center gap-1.5 shadow-sm">
+                        <i data-lucide="download" class="w-4 h-4"></i>
+                        匯出 CSV
+                    </button>
+
+                    <!-- 列印按鈕 -->
+                    <button id="print-btn" onclick="triggerPrint()" class="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition flex items-center gap-1.5 shadow-sm">
+                        <i data-lucide="printer" class="w-4 h-4"></i>
+                        列印
+                    </button>
                 </div>
             </div>
         </section>
 
-        <!-- 右側：統計數據區域 -->
-        <div class="flex flex-col gap-6">
-            <!-- 統計卡片 1 -->
-            <div class="bg-white p-6 rounded-lg shadow-sm border border-slate-200 flex flex-col justify-center">
-                <p class="text-slate-400 text-xs font-medium uppercase tracking-wider">處理總數</p>
-                <p class="text-2xl font-bold text-slate-800">1,284</p>
+        <!-- 表格內容區塊 -->
+        <section id="table-container" class="hidden bg-white rounded-xl border border-black shadow-sm overflow-hidden flex-1 flex-col">
+            <div class="overflow-x-auto overflow-y-auto flex-1 max-h-[650px] relative">
+                <!-- 表格邊框實線 border-black -->
+                <table class="w-max min-w-full text-left text-sm border-collapse border border-black">
+                    <thead id="table-head" class="bg-slate-100 text-slate-700 font-semibold sticky top-0 z-10 border-b border-black shadow-sm">
+                        <!-- 動態插入表頭 -->
+                    </thead>
+                    <tbody id="table-body" class="divide-y divide-black text-slate-600">
+                        <!-- 動態插入資料內容 -->
+                    </tbody>
+                </table>
             </div>
-            <!-- 統計卡片 2 -->
-            <div class="bg-white p-6 rounded-lg shadow-sm border border-slate-200 flex flex-col justify-center">
-                <p class="text-slate-400 text-xs font-medium uppercase tracking-wider">錯誤率</p>
-                <p class="text-2xl font-bold text-rose-500">0.4%</p>
-            </div>
-        </div>
-    </div>
+        </section>
 
+    </main>
+
+    <!-- JavaScript 邏輯程式碼 -->
     <script>
-        // 初始化 Lucide 圖示
+        // 狀態管理 State (區分兩個分頁)
+        const tabsState = {
+            tab1: { parsedHeaders: [], parsedRows: [], filteredRows: [], sortColumnIndex: -1, sortAscending: true, searchQuery: '' },
+            tab2: { parsedHeaders: [], parsedRows: [], filteredRows: [], aggregatedFlags: [], sortColumnIndex: -1, sortAscending: true, searchQuery: '' }
+        };
+
+        let activeTab = 'tab1';
+        let currentFileName = '';
+
+        // 排除顯示的欄位清單
+        const EXCLUDED_COLUMNS = [
+            '選取',
+            '發料與覆核時間差(完整)',
+            '發料與覆核時間差'
+        ];
+
+        // 領料單清單要求的最終欄位順序定義 (排除舊品註記、材料經辦、覆核日期)
+        const TARGET_COLUMN_ORDER_TAB1 = [
+            '領料院區',
+            '領料部門',
+            '本單編號',
+            '材料編號',
+            '單位',
+            '品名規格',
+            '料位號',
+            '數量',
+            '包裝量',
+            '開單人',
+            '電話',
+            '狀態',
+            '異代'
+        ];
+
+        // 特殊處理的原欄位名稱對照表
+        const COL_NAME_DEPT = '領料部門成本負擔部門';
+        const COL_NAME_DEPT_ALT = '領料部門';
+        const COL_NAME_USER_INFO = '開單人開單人電話工程編號';
+        const COL_NAME_MAT_INFO = '材料編號單位舊品註記';
+        const COL_NAME_LOC_QTY = '料位號數量';
+        const COL_NAME_STATUS_PKG = '狀態包裝量';
+        const COL_NAME_ALT_PURPOSE = '異代原代用途代號';
+        const COL_NAME_DEPT_CAMPUS = '領料部門所屬院區本單編號';
+        const COL_NAME_HANDLER = '材料經辦';
+        const COL_NAME_REVIEW_DATE = '異動日期覆核主管覆核日期';
+
+        // DOM 元素引用
+        const csvFileInput = document.getElementById('csv-file-input');
+        const uploadSection = document.getElementById('upload-section');
+        const dataControls = document.getElementById('data-controls');
+        const tableContainer = document.getElementById('table-container');
+        const tableHead = document.getElementById('table-head');
+        const tableBody = document.getElementById('table-body');
+        const searchInput = document.getElementById('search-input');
+        const fileStatus = document.getElementById('file-status');
+        const fileNameDisplay = document.getElementById('file-name-display');
+        const exportBtn = document.getElementById('export-btn');
+        const statRows = document.getElementById('stat-rows');
+        const statItems = document.getElementById('stat-items');
+
+        // 初始化圖標
         lucide.createIcons();
+
+        // 綁定事件
+        csvFileInput.addEventListener('change', handleFileSelect);
+        searchInput.addEventListener('input', handleSearch);
+        exportBtn.addEventListener('click', exportToCSV);
+
+        // 拖曳上傳視覺效果
+        ['dragenter', 'dragover'].forEach(eventName => {
+            uploadSection.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                uploadSection.classList.add('border-indigo-500', 'bg-indigo-50/50');
+            });
+        });
+        ['dragleave', 'drop'].forEach(eventName => {
+            uploadSection.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                uploadSection.classList.remove('border-indigo-500', 'bg-indigo-50/50');
+            });
+        });
+
+        // 切換頁籤
+        function switchTab(tabId) {
+            activeTab = tabId;
+            const tab1Btn = document.getElementById('tab1-btn');
+            const tab2Btn = document.getElementById('tab2-btn');
+
+            if (tabId === 'tab1') {
+                tab1Btn.className = "flex-1 py-2.5 px-4 rounded-lg font-semibold text-sm transition flex items-center justify-center gap-2 bg-indigo-600 text-white shadow-sm";
+                tab2Btn.className = "flex-1 py-2.5 px-4 rounded-lg font-semibold text-sm transition flex items-center justify-center gap-2 bg-slate-100 text-slate-600 hover:bg-slate-200";
+            } else {
+                tab2Btn.className = "flex-1 py-2.5 px-4 rounded-lg font-semibold text-sm transition flex items-center justify-center gap-2 bg-indigo-600 text-white shadow-sm";
+                tab1Btn.className = "flex-1 py-2.5 px-4 rounded-lg font-semibold text-sm transition flex items-center justify-center gap-2 bg-slate-100 text-slate-600 hover:bg-slate-200";
+            }
+
+            const currentTabState = tabsState[activeTab];
+            searchInput.value = currentTabState.searchQuery;
+
+            updateStats();
+            renderTableHeader();
+            renderTableBody();
+        }
+
+        // 更新統計數字
+        function updateStats() {
+            statRows.innerText = tabsState.tab1.parsedRows.length.toLocaleString();
+            statItems.innerText = tabsState.tab2.parsedRows.length.toLocaleString();
+        }
+
+        // 觸發列印功能 (Chrome 列印)
+        function triggerPrint() {
+            window.print();
+        }
+
+        // 檔案選擇事件處理
+        function handleFileSelect(e) {
+            const file = e.target.files[0];
+            if (file) {
+                processFile(file);
+            }
+        }
+
+        // 讀取與處理檔案
+        function processFile(file) {
+            currentFileName = file.name;
+            const reader = new FileReader();
+
+            reader.onload = function(e) {
+                const text = e.target.result;
+                parseCSVText(text);
+                showDataUI(file.name);
+            };
+
+            reader.readAsText(file, 'UTF-8');
+        }
+
+        // 時間格式化工具：保留到分鐘 (YYYY-MM-DD HH:mm)
+        function formatDateTimeToMinute(str) {
+            if (!str) return '';
+            str = str.trim();
+            const match = str.match(/^(\d{4}[-/.]\d{1,2}[-/.]\d{1,2})[\sT](\d{1,2}:\d{2})(:\d{2})?/);
+            if (match) {
+                return `${match[1].replace(/[/.]/g, '-')} ${match[2]}`;
+            }
+            const d = new Date(str);
+            if (!isNaN(d.getTime())) {
+                const pad = (n) => String(n).padStart(2, '0');
+                return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+            }
+            return str;
+        }
+
+        // 計算半形（1個長度）與全形/中文（2個長度）換行，每 maxUnits 換行，最多 maxLines 行
+        function wrapTextByLength(str, maxUnits = 40, maxLines = 2) {
+            if (!str) return '';
+            let cleanStr = String(str).trim();
+            
+            let lines = [];
+            let currentLine = '';
+            let currentUnits = 0;
+            let hasMore = false;
+
+            for (let i = 0; i < cleanStr.length; i++) {
+                const char = cleanStr[i];
+                const charUnits = cleanStr.charCodeAt(i) > 255 ? 2 : 1;
+
+                if (currentUnits + charUnits > maxUnits) {
+                    lines.push(currentLine);
+                    currentLine = '';
+                    currentUnits = 0;
+
+                    if (lines.length === maxLines) {
+                        hasMore = true;
+                        break;
+                    }
+                }
+
+                currentLine += char;
+                currentUnits += charUnits;
+            }
+
+            if (!hasMore && currentLine !== '') {
+                if (lines.length < maxLines) {
+                    lines.push(currentLine);
+                } else {
+                    hasMore = true;
+                }
+            }
+
+            if (hasMore && lines.length > 0) {
+                let lastIdx = lines.length - 1;
+                let lastLine = lines[lastIdx];
+                if (lastLine.length > 3) {
+                    lines[lastIdx] = lastLine.slice(0, -1) + '...';
+                } else {
+                    lines[lastIdx] = lastLine + '...';
+                }
+            }
+
+            return lines.join('\n');
+        }
+
+        // 材料編號專用比較邏輯：數字從大到小 (降冪)，英文字最後且從 A~Z (升冪)
+        function compareMaterialNumbers(valA, valB) {
+            const strA = String(valA || '').trim();
+            const strB = String(valB || '').trim();
+
+            const isNumA = /^\d+(\.\d+)?$/.test(strA);
+            const isNumB = /^\d+(\.\d+)?$/.test(strB);
+
+            if (isNumA && isNumB) {
+                return parseFloat(strB) - parseFloat(strA);
+            }
+            if (isNumA && !isNumB) {
+                return -1;
+            }
+            if (!isNumA && isNumB) {
+                return 1;
+            }
+            return strA.localeCompare(strB, 'zh-TW', { numeric: true, sensitivity: 'base' });
+        }
+
+        // 預設多重排序：(1)本單編號從小到大(升冪)、(2)材料編號(數字降冪、英文字最後按 A~Z)
+        function applyDefaultSort(headers, rows) {
+            const docNoIdx = headers.indexOf('本單編號');
+            const matNoIdx = headers.indexOf('材料編號');
+
+            rows.sort((a, b) => {
+                let docA = docNoIdx !== -1 ? (a[docNoIdx] || '') : '';
+                let docB = docNoIdx !== -1 ? (b[docNoIdx] || '') : '';
+
+                let docCompare = compareValues(docA, docB);
+                if (docCompare !== 0) return docCompare;
+
+                let matA = matNoIdx !== -1 ? (a[matNoIdx] || '') : '';
+                let matB = matNoIdx !== -1 ? (b[matNoIdx] || '') : '';
+                return compareMaterialNumbers(matA, matB);
+            });
+        }
+
+        function compareValues(valA, valB) {
+            const numA = parseFloat(valA);
+            const numB = parseFloat(valB);
+
+            if (!isNaN(numA) && !isNaN(numB)) {
+                return numA - numB;
+            }
+            return String(valA).localeCompare(String(valB), 'zh-TW');
+        }
+
+        // 解析 CSV 核心邏輯
+        function parseCSVText(text) {
+            const delimiter = detectDelimiter(text);
+            const lines = splitCSVLines(text, delimiter);
+
+            if (lines.length === 0) return;
+
+            const rawHeaders = lines[0].map(h => h.trim());
+
+            // 1. 剖析並拆解資料至 Key-Value Map
+            const rawRows = lines.slice(1).filter(row => row.length === rawHeaders.length || (row.length === 1 && row[0] !== ""));
+
+            const extractedDataMapList = rawRows.map(row => {
+                const rowData = {};
+
+                rawHeaders.forEach((header, idx) => {
+                    if (EXCLUDED_COLUMNS.includes(header)) return;
+
+                    const rawVal = row[idx] !== undefined ? String(row[idx]).trim() : '';
+                    const parts = rawVal.split(/[/／]/);
+
+                    if (header === COL_NAME_DEPT || header === COL_NAME_DEPT_ALT) {
+                        rowData['領料部門'] = parts[0] ? parts[0].trim() : '';
+                    } 
+                    else if (header === COL_NAME_USER_INFO) {
+                        rowData['開單人'] = parts[0] ? parts[0].trim() : '';
+                        rowData['電話'] = parts[1] ? parts[1].trim() : '';
+                    } 
+                    else if (header === COL_NAME_MAT_INFO) {
+                        rowData['材料編號'] = parts[0] ? parts[0].trim() : '';
+                        rowData['單位'] = parts[1] ? parts[1].trim() : '';
+                        rowData['舊品註記'] = parts[2] ? parts[2].trim() : '';
+                    } 
+                    else if (header === COL_NAME_LOC_QTY) {
+                        rowData['料位號'] = parts[0] ? parts[0].trim() : '';
+                        rowData['數量'] = parts[1] ? parts[1].trim() : '';
+                    } 
+                    else if (header === COL_NAME_STATUS_PKG) {
+                        rowData['狀態'] = parts[0] ? parts[0].trim() : '';
+                        rowData['包裝量'] = parts[1] ? parts[1].trim() : '';
+                    } 
+                    else if (header === COL_NAME_ALT_PURPOSE) {
+                        rowData['異代'] = parts[0] ? parts[0].trim() : '';
+                    } 
+                    else if (header === COL_NAME_DEPT_CAMPUS) {
+                        rowData['領料院區'] = parts[0] ? parts[0].trim() : '';
+                        rowData['本單編號'] = parts[1] ? parts[1].trim() : '';
+                    } 
+                    else if (header === COL_NAME_HANDLER) {
+                        const groupIndex = rawVal.lastIndexOf('組');
+                        let nameResult = '';
+                        if (groupIndex !== -1 && rawVal.length >= groupIndex + 1) {
+                            nameResult = rawVal.substring(groupIndex + 1, groupIndex + 5);
+                        } else {
+                            nameResult = rawVal;
+                        }
+                        rowData['材料經辦'] = nameResult.replace(/\s+/g, '');
+                    } 
+                    else if (header === COL_NAME_REVIEW_DATE) {
+                        const lastPart = parts.length > 0 ? parts[parts.length - 1].trim() : '';
+                        rowData['覆核日期'] = formatDateTimeToMinute(lastPart);
+                    } 
+                    else {
+                        rowData[header] = rawVal;
+                    }
+                });
+
+                return rowData;
+            });
+
+            // 2. 建立 tab1 (領料單清單)：排除指定 3 欄
+            const presentKeys = new Set();
+            extractedDataMapList.forEach(item => {
+                Object.keys(item).forEach(k => {
+                    if (!['舊品註記', '材料經辦', '覆核日期'].includes(k)) {
+                        presentKeys.add(k);
+                    }
+                });
+            });
+
+            const parsedHeadersTab1 = [];
+            TARGET_COLUMN_ORDER_TAB1.forEach(colName => {
+                parsedHeadersTab1.push(colName);
+            });
+            presentKeys.forEach(key => {
+                if (!parsedHeadersTab1.includes(key)) {
+                    parsedHeadersTab1.push(key);
+                }
+            });
+
+            const parsedRowsTab1 = extractedDataMapList.map(rowData => {
+                return parsedHeadersTab1.map(header => {
+                    let val = rowData[header] !== undefined ? rowData[header] : '';
+                    if (header === '品名規格') {
+                        val = wrapTextByLength(val, 40, 2);
+                    }
+                    return val;
+                });
+            });
+
+            applyDefaultSort(parsedHeadersTab1, parsedRowsTab1);
+
+            tabsState.tab1.parsedHeaders = [...parsedHeadersTab1];
+            tabsState.tab1.parsedRows = JSON.parse(JSON.stringify(parsedRowsTab1));
+            tabsState.tab1.filteredRows = JSON.parse(JSON.stringify(parsedRowsTab1));
+            tabsState.tab1.searchQuery = '';
+            tabsState.tab1.sortColumnIndex = -1;
+
+            // 3. 建立 tab2 (材料備總數)：以「材料編號、單位、品名規格、料位號、包裝量」為唯一鍵精準彙總
+            const tab2TargetHeaders = ['材料編號', '單位', '品名規格', '料位號', '總數量', '包裝量'];
+            const summaryMap = new Map(); // key -> { totalQty, count }
+
+            extractedDataMapList.forEach(item => {
+                const matNo = (item['材料編號'] || '').trim();
+                const unit = (item['單位'] || '').trim();
+                const spec = (item['品名規格'] || '').trim();
+                const loc = (item['料位號'] || '').trim();
+                const pkg = (item['包裝量'] || '').trim();
+                const qtyNum = parseFloat(item['數量']) || 0;
+
+                const key = `${matNo}___${unit}___${spec}___${loc}___${pkg}`;
+
+                if (summaryMap.has(key)) {
+                    const existing = summaryMap.get(key);
+                    existing.totalQty += qtyNum;
+                    existing.count += 1;
+                } else {
+                    summaryMap.set(key, { totalQty: qtyNum, count: 1 });
+                }
+            });
+
+            const tab2Rows = [];
+            summaryMap.forEach((data, key) => {
+                const parts = key.split('___');
+                const matNo = parts[0];
+                const unit = parts[1];
+                const rawSpec = parts[2];
+                const loc = parts[3];
+                const pkg = parts[4];
+
+                const formattedSpec = wrapTextByLength(rawSpec, 40, 2);
+
+                tab2Rows.push({
+                    row: [matNo, unit, formattedSpec, loc, String(data.totalQty), pkg],
+                    isAggregated: data.count >= 2
+                });
+            });
+
+            // 排序：依「料位號」降冪排序
+            const locIdx = tab2TargetHeaders.indexOf('料位號');
+            tab2Rows.sort((a, b) => {
+                let valA = a.row[locIdx] || '';
+                let valB = b.row[locIdx] || '';
+                return String(valB).localeCompare(String(valA), 'zh-TW', { numeric: true, sensitivity: 'base' });
+            });
+
+            const finalTab2Rows = tab2Rows.map(item => item.row);
+            const finalTab2AggregatedFlags = tab2Rows.map(item => item.isAggregated);
+
+            tabsState.tab2.parsedHeaders = [...tab2TargetHeaders];
+            tabsState.tab2.parsedRows = JSON.parse(JSON.stringify(finalTab2Rows));
+            tabsState.tab2.filteredRows = JSON.parse(JSON.stringify(finalTab2Rows));
+            tabsState.tab2.aggregatedFlags = finalTab2AggregatedFlags;
+            tabsState.tab2.searchQuery = '';
+            tabsState.tab2.sortColumnIndex = -1;
+
+            searchInput.value = '';
+            updateStats();
+
+            renderTableHeader();
+            renderTableBody();
+        }
+
+        function detectDelimiter(text) {
+            const sample = text.slice(0, 5000);
+            const commas = (sample.match(/,/g) || []).length;
+            const semicolons = (sample.match(/;/g) || []).length;
+            const tabs = (sample.match(/\t/g) || []).length;
+
+            if (tabs > commas && tabs > semicolons) return '\t';
+            if (semicolons > commas) return ';';
+            return ',';
+        }
+
+        function splitCSVLines(text, delimiter) {
+            const rows = [];
+            let currentRow = [];
+            let currentToken = '';
+            let insideQuotes = false;
+
+            for (let i = 0; i < text.length; i++) {
+                const char = text[i];
+                const nextChar = text[i + 1];
+
+                if (char === '"') {
+                    if (insideQuotes && nextChar === '"') {
+                        currentToken += '"';
+                        i++;
+                    } else {
+                        insideQuotes = !insideQuotes;
+                    }
+                } else if (char === delimiter && !insideQuotes) {
+                    currentRow.push(currentToken);
+                    currentToken = '';
+                } else if ((char === '\r' || char === '\n') && !insideQuotes) {
+                    if (char === '\r' && nextChar === '\n') {
+                        i++;
+                    }
+                    currentRow.push(currentToken);
+                    if (currentRow.some(cell => cell.trim() !== '')) {
+                        rows.push(currentRow);
+                    }
+                    currentRow = [];
+                    currentToken = '';
+                } else {
+                    currentToken += char;
+                }
+            }
+
+            if (currentToken || currentRow.length > 0) {
+                currentRow.push(currentToken);
+                if (currentRow.some(cell => cell.trim() !== '')) {
+                    rows.push(currentRow);
+                }
+            }
+
+            return rows;
+        }
+
+        // 渲染表頭 (帶黑色實線邊框)
+        function renderTableHeader() {
+            const st = tabsState[activeTab];
+            let html = '<tr class="divide-x divide-black">';
+            html += `<th class="px-3 py-3 text-center w-px whitespace-nowrap bg-slate-100 text-slate-500 font-medium border border-black">#</th>`;
+            
+            st.parsedHeaders.forEach((header, index) => {
+                const isSorted = st.sortColumnIndex === index;
+                const sortIcon = isSorted ? (st.sortAscending ? 'arrow-up' : 'arrow-down') : 'unfold-vertical';
+                
+                const isSpec = header === '品名規格';
+                const colClass = isSpec ? 'min-w-[40ch] w-[40ch]' : 'w-px whitespace-nowrap';
+
+                html += `
+                    <th onclick="sortTable(${index})" class="px-3 py-3 ${colClass} cursor-pointer hover:bg-slate-200 transition select-none group border border-black">
+                        <div class="flex items-center justify-between gap-1.5">
+                            <span>${escapeHtml(header)}</span>
+                            <i data-lucide="${sortIcon}" class="w-3.5 h-3.5 ${isSorted ? 'text-indigo-600' : 'text-slate-400 group-hover:text-slate-600'}"></i>
+                        </div>
+                    </th>
+                `;
+            });
+            html += '</tr>';
+            tableHead.innerHTML = html;
+            lucide.createIcons();
+        }
+
+        // 渲染表格內容
+        function renderTableBody() {
+            const st = tabsState[activeTab];
+
+            if (st.filteredRows.length === 0) {
+                tableBody.innerHTML = `
+                    <tr>
+                        <td colspan="${st.parsedHeaders.length + 1}" class="text-center py-12 text-slate-400 border border-black">
+                            <i data-lucide="file-x-2" class="w-10 h-10 mx-auto mb-2 text-slate-300"></i>
+                            查無符合條件的資料
+                        </td>
+                    </tr>
+                `;
+                lucide.createIcons();
+                return;
+            }
+
+            const docNoIdx = st.parsedHeaders.indexOf('本單編號');
+            const totalQtyIdx = st.parsedHeaders.indexOf('總數量');
+            let html = '';
+            
+            st.filteredRows.forEach((row, rowIndex) => {
+                const actualIndex = rowIndex + 1;
+                
+                // 領料單清單分頁(tab1)套用相同本單編號相鄰列粗框區分
+                let isNewGroup = false;
+                if (activeTab === 'tab1' && rowIndex > 0 && docNoIdx !== -1) {
+                    const prevRow = st.filteredRows[rowIndex - 1];
+                    if (row[docNoIdx] !== prevRow[docNoIdx]) {
+                        isNewGroup = true;
+                    }
+                }
+                const rowBorderClass = isNewGroup ? 'border-t-2 border-t-black' : '';
+
+                html += `<tr class="hover:bg-indigo-50/30 transition divide-x divide-black ${rowBorderClass}">`;
+                html += `<td class="px-3 py-2 text-center text-xs font-mono text-slate-400 bg-slate-50/50 w-px whitespace-nowrap border border-black">${actualIndex}</td>`;
+                
+                st.parsedHeaders.forEach((header, colIndex) => {
+                    const cellValue = row[colIndex] !== undefined ? row[colIndex] : '';
+                    
+                    // 材料備總數分頁中，若該列是由兩筆以上彙總，則「總數量」欄位加上灰底
+                    let extraCellClass = '';
+                    if (activeTab === 'tab2' && colIndex === totalQtyIdx && st.aggregatedFlags && st.aggregatedFlags[rowIndex]) {
+                        extraCellClass = ' bg-slate-200 font-semibold';
+                    }
+                    
+                    if (header === '品名規格') {
+                        html += `<td class="px-3 py-2 text-xs text-slate-700 min-w-[40ch] w-[40ch] whitespace-pre-line leading-relaxed align-top break-words border border-black${extraCellClass}" title="${escapeHtml(cellValue)}">${escapeHtml(cellValue)}</td>`;
+                    } else {
+                        html += `<td class="px-3 py-2 text-xs text-slate-700 w-px whitespace-nowrap align-top border border-black${extraCellClass}" title="${escapeHtml(cellValue)}">${escapeHtml(cellValue)}</td>`;
+                    }
+                });
+
+                html += `</tr>`;
+            });
+
+            tableBody.innerHTML = html;
+        }
+
+        // 全文搜尋過濾
+        function handleSearch(e) {
+            const query = e.target.value.toLowerCase().trim();
+            const st = tabsState[activeTab];
+            st.searchQuery = query;
+
+            if (!query) {
+                st.filteredRows = [...st.parsedRows];
+            } else {
+                st.filteredRows = st.parsedRows.filter(row => 
+                    row.some(cell => String(cell).toLowerCase().includes(query))
+                );
+            }
+            renderTableBody();
+        }
+
+        // 單欄手動排序
+        function sortTable(columnIndex) {
+            const st = tabsState[activeTab];
+            if (st.sortColumnIndex === columnIndex) {
+                st.sortAscending = !st.sortAscending;
+            } else {
+                st.sortColumnIndex = columnIndex;
+                st.sortAscending = true;
+            }
+
+            st.filteredRows.sort((a, b) => {
+                let valA = a[columnIndex] || '';
+                let valB = b[columnIndex] || '';
+
+                const cmp = compareValues(valA, valB);
+                return st.sortAscending ? cmp : -cmp;
+            });
+
+            renderTableHeader();
+            renderTableBody();
+        }
+
+        // 匯出 CSV 檔
+        function exportToCSV() {
+            const st = tabsState[activeTab];
+            if (st.parsedHeaders.length === 0) return;
+
+            let csvContent = '\uFEFF'; // BOM
+            csvContent += st.parsedHeaders.map(h => `"${h.replace(/"/g, '""')}"`).join(',') + '\n';
+
+            st.filteredRows.forEach(row => {
+                const formattedRow = row.map(cell => `"${(cell || '').replace(/"/g, '""')}"`).join(',');
+                csvContent += formattedRow + '\n';
+            });
+
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            const tabName = activeTab === 'tab1' ? '領料單清單' : '材料備總數';
+            link.setAttribute('href', url);
+            link.setAttribute('download', `${tabName}_${currentFileName || 'data.csv'}`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        // 顯示解構後的 UI
+        function showDataUI(fileName) {
+            dataControls.classList.remove('hidden');
+            dataControls.classList.add('flex');
+            tableContainer.classList.remove('hidden');
+            tableContainer.classList.add('flex');
+            fileStatus.classList.remove('hidden');
+            fileNameDisplay.innerText = fileName;
+        }
+
+        // 工具函式：轉義 HTML 避免 XSS
+        function escapeHtml(text) {
+            if (typeof text !== 'string') return text;
+            return text
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
     </script>
 </body>
 </html>
