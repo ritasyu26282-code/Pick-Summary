@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CSV 資料自動切分與預覽工具</title>
+    <title>領料單資料轉檔及彙總功能</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Lucide Icons -->
@@ -27,6 +27,7 @@
 
             header, 
             #upload-section, 
+            #stats-container,
             #data-controls, 
             button, 
             input, 
@@ -91,8 +92,8 @@
                     <i data-lucide="file-spreadsheet" class="w-6 h-6"></i>
                 </div>
                 <div>
-                    <h1 class="font-bold text-lg text-slate-900 leading-tight">CSV 資料自動剖析與檢視器</h1>
-                    <p class="text-xs text-slate-500">快速上傳、自動切分、過濾與瀏覽 CSV 數據</p>
+                    <h1 class="font-bold text-lg text-slate-900 leading-tight">領料單資料轉檔及彙總功能</h1>
+                    <p class="text-xs text-slate-500">CSV資料請從行動倉儲「677 領料單沖銷(發料)輸入」螢幕，搜尋資料後匯出</p>
                 </div>
             </div>
             <div id="file-status" class="hidden text-xs px-3 py-1 bg-emerald-100 text-emerald-800 rounded-full font-medium flex items-center gap-1.5">
@@ -122,7 +123,7 @@
             </section>
 
             <!-- 右側上下兩個統計卡片框 (佔 1 欄) -->
-            <div class="flex flex-col gap-4 justify-between">
+            <div id="stats-container" class="flex flex-col gap-4 justify-between">
                 <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4 flex-1">
                     <div class="p-3 bg-blue-50 text-blue-600 rounded-lg">
                         <i data-lucide="rows" class="w-6 h-6"></i>
@@ -601,12 +602,12 @@
                 });
             });
 
-            // 排序：依「料位號」降冪排序
+            // 排序：「料位號」正向排序（先用第一位、再排第二位，字元順序 A-Z、數字 1-9）
             const locIdx = tab2TargetHeaders.indexOf('料位號');
             tab2Rows.sort((a, b) => {
                 let valA = a.row[locIdx] || '';
                 let valB = b.row[locIdx] || '';
-                return String(valB).localeCompare(String(valA), 'zh-TW', { numeric: true, sensitivity: 'base' });
+                return String(valA).localeCompare(String(valB), 'zh-TW', { numeric: true, sensitivity: 'base' });
             });
 
             const finalTab2Rows = tab2Rows.map(item => item.row);
